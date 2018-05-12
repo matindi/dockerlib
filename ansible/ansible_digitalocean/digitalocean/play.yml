@@ -15,6 +15,8 @@
     droplets:
     - droplet-one
     - droplet-two 
+    masterdroplet:
+    - droplet-three
     es_major_version: "2.x"
     es_version: "2.2.1"
     es_heap_size: "2g"
@@ -39,7 +41,7 @@
       command=droplet
       name={{ item }}
       unique_name=yes
-      size_id=512mb
+      size_id=8gb
       private_networking=yes
       region_id=sgp1
       image_id=ubuntu-16-04-x64
@@ -48,42 +50,94 @@
     with_items: "{{droplets}}"
     register: droplet_details
 
-  - name: Add new host to our inventory.
+  - name: ensure master droplet exist
+    digital_ocean: >
+      state=present
+      command=droplet
+      name={{ item }}
+      unique_name=yes
+      size_id=8gb
+      private_networking=yes
+      region_id=sgp1
+      image_id=ubuntu-16-04-x64
+      ssh_key_ids={{ my_ssh_key.ssh_key.id }}
+      api_token={{ do_token }}
+    with_items: "{{masterdroplet}}"
+    register: droplet_details2
+
+  - name: Add new slave host to our inventory.
     add_host:
       name: "{{ item }}"
-      groups: do
+      groups: slave
     with_items:
      - "{{ droplet_details.results|map(attribute='droplet.ip_address')|list }}"
+     
+  - name: Add new master host to our inventory.
+    add_host:
+      name: "{{ item }}"
+      groups: master
+    with_items:
+     - "{{ droplet_details2.results|map(attribute='droplet.ip_address')|list }}"
+
+  - name: Add new master host to our private inventory.
+    add_host:
+      name: "{{ item }}"
+      groups: masterPrivate
+    with_items:
+     - "{{ droplet_details2.results|map(attribute='droplet.private_ip_address')|list }}"
+
+  - name: Add new slave host to our private inventory.
+    add_host:
+      name: "{{ item }}"
+      groups: slavePrivate
+    with_items:
+     - "{{ droplet_details.results|map(attribute='droplet.private_ip_address')|list }}"
+
 
   - debug: 
-      msg="IP is {{ item }}"
+      msg="IP is{{ item.droplet.ip_address }}"
     with_items:
-     - "{{ droplet_details.results|map(attribute='droplet.ip_address')|list }}"
+     - "{{ droplet_details.results }}"
 
-- hosts: do
+- hosts: master
   remote_user: root
   gather_facts: False
-    
+  vars: 
+    ansible_os_family: "Debian"  
+    ansible_distribution: "2.4.1.0"  
   tasks:
-    - name: Wait for port 22 to become available.
-      local_action: "wait_for port=22 host={{ inventory_hostname }}"  
+    - name: install python 2
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+  roles:
+    - { role: elasticsearch, es_instance_name: "node1" }
 
+- hosts: slave
+  remote_user: root
+  gather_facts: False  
+  vars: 
+    ansible_os_family: "Debian"  
+    ansible_distribution: "2.4.1.0"    
+  tasks:
+    - name: install python 2
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+  roles:
+    - { role: elasticsearch, es_instance_name: "node1" }
+
+
+
+
+
+- hosts: slave
+  remote_user: root
+  gather_facts: False
+  vars: 
+    ansible_os_family: "Debian"  
+    ansible_distribution: "2.4.1.0"    
+  tasks:
     - name: install python 2
       raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
 
-    - name: Install add-apt-repostory
-      become: yes
-      apt: name=software-properties-common state=latest
-
-    - name: Add Oracle Java Repository
-      become: yes
-      apt_repository: repo='ppa:webupd8team/java'
-
-    - name: Accept Java 8 License
-      become: yes
-      debconf: name='oracle-java8-installer' question='shared/accepted-oracle-license-v1-1' value='true' vtype='select'
-
-- hosts: do
+- hosts: slave
   remote_user: root
   gather_facts: False   
   vars: 
