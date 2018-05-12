@@ -1,7 +1,7 @@
 - hosts: digitalocean
   # roles:
   #   - digitalocean
-  vars : 
+  vars: 
     do_token: !vault |
           $ANSIBLE_VAULT;1.2;AES256;dev
           66353539343933396263663030373730336466366539313866346461343533633339613739356465
@@ -27,7 +27,7 @@
     digital_ocean: >
       state=present
       command=ssh
-      name=my_ssh_key
+      name=my_new_key
       ssh_pub_key={{ lookup('file', '../.ssh/id_rsa.pub') }}
       api_token={{ do_token }}
     register: my_ssh_key
@@ -68,6 +68,9 @@
     - name: Wait for port 22 to become available.
       local_action: "wait_for port=22 host={{ inventory_hostname }}"  
 
+    - name: install python 2
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+
     - name: Install add-apt-repostory
       become: yes
       apt: name=software-properties-common state=latest
@@ -80,10 +83,11 @@
       become: yes
       debconf: name='oracle-java8-installer' question='shared/accepted-oracle-license-v1-1' value='true' vtype='select'
 
-    - name: Install Oracle Java 8
-      become: yes
-      apt: name={{item}} state=latest
-      with_items:
-        - oracle-java8-installer
-        - ca-certificates
-        - oracle-java8-set-default
+- hosts: do
+  remote_user: root
+  gather_facts: False   
+  vars: 
+    ansible_os_family: "Debian"  
+    ansible_distribution: "2.4.1.0"  
+  roles:
+    - { role: elasticsearch, es_instance_name: "node1" }
